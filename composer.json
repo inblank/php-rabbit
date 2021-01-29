@@ -1,0 +1,26 @@
+{
+    "name": "inblank/rabbit",
+    "license": "proprietary",
+    "description": "Rabbitmq working",
+    "keywords": [
+    ],
+    "type": "library",
+    "require": {
+        "php": "~7.4",
+        "ext-json": "*",
+        "ext-amqp": "*",
+        "monolog/monolog": "~2.2.0"
+    },
+    "require-dev": {
+        "roave/security-advisories": "dev-master"
+    },
+    "autoload": {
+        "psr-4": {
+            "inblank\\rabbit\\": "src"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true
+    }
+}
