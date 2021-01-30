@@ -1,0 +1,13 @@
+version: "3"
+services:
+  rabbit:
+    image: "rabbitmq:3.8.11-alpine"
+    environment:
+      RABBITMQ_ERLANG_COOKIE: test
+      RABBITMQ_DEFAULT_USER: test
+      RABBITMQ_DEFAULT_PASS: test
+  php:
+    image: "inblank/php7.4-cli"
+    volumes:
+      - ./:/opt/src
+    working_dir: /opt/src
