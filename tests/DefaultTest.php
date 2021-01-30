@@ -1,6 +1,6 @@
 <?php
 
-use inblank\rabbit\Rabbit;
+use inblank\rabbit\Connection;
 use PHPUnit\Framework\TestCase;
 
 class DefaultTest extends TestCase
@@ -19,7 +19,7 @@ class DefaultTest extends TestCase
      */
     public function testAll(): void
     {
-        $rabbit = new Rabbit($_ENV['config']);
+        $rabbit = new Connection($_ENV['config']);
         // очищаем очередь перед тестами
         $rabbit->getQueue('test')->getQueue()->purge();
 

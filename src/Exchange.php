@@ -26,16 +26,16 @@ class Exchange
     private string $name;
     /**
      * Основной класс подключения к серверу
-     * @var Rabbit
+     * @var Connection
      */
-    private Rabbit $rabbit;
+    private Connection $rabbit;
 
     /**
      * Конструктор
-     * @param Rabbit $rabbit конфигурация и подключение к серверу
+     * @param Connection $rabbit конфигурация и подключение к серверу
      * @param string $name имя обменника в конфигурации
      */
-    private function __construct(Rabbit $rabbit, string $name)
+    private function __construct(Connection $rabbit, string $name)
     {
         $this->name = $name;
         $this->rabbit = $rabbit;
@@ -43,11 +43,11 @@ class Exchange
 
     /**
      * Получение инстанса обменника
-     * @param Rabbit $rabbit конфигурация и подключение к серверу
+     * @param Connection $rabbit конфигурация и подключение к серверу
      * @param string $name имя обменника в конфигурации
      * @return static
      */
-    public static function getInstance(Rabbit $rabbit, string $name): self
+    public static function getInstance(Connection $rabbit, string $name): self
     {
         $key = md5(json_encode($rabbit->config['connection']) . $name);
         if (!isset(self::$instances[$key])) {

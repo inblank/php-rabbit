@@ -8,10 +8,10 @@ use Monolog\Handler\StreamHandler;
 use Monolog\Logger;
 
 /**
- * Работа с брокером сообщений rabbit
+ * Работа с брокером сообщений
  * На базе: {@link http://ajaxblog.ru/php/rabbitmq-tutorial/}
  */
-class Rabbit
+class Connection
 {
     /**
      * Подключение к серверу брокера сообщений
@@ -62,8 +62,8 @@ class Rabbit
 
     /**
      * Конструктор
-     * @param array $config конфигурация подключения. Формат в {@see Rabbit::$config}
-     * @param string|null $logFile имя лог файла. {@see Rabbit::$logFile}
+     * @param array $config конфигурация подключения. Формат в {@see Connection::$config}
+     * @param string|null $logFile имя лог файла. {@see Connection::$logFile}
      */
     public function __construct(array $config, ?string $logFile = null)
     {
@@ -117,7 +117,7 @@ class Rabbit
 
     /**
      * Получение обменника
-     * @param string $name имя обменника который получить. Должен быть описан в конфигурации {@see Rabbit::$config}
+     * @param string $name имя обменника который получить. Должен быть описан в конфигурации {@see Connection::$config}
      * @return Exchange
      */
     public function getExchange(string $name): Exchange
@@ -127,7 +127,7 @@ class Rabbit
 
     /**
      * Получение очереди
-     * @param string $name имя очереди которую получить. Должна быть описана в конфигурации {@see Rabbit::$config}
+     * @param string $name имя очереди которую получить. Должна быть описана в конфигурации {@see Connection::$config}
      * @return Queue
      */
     public function getQueue(string $name): Queue
