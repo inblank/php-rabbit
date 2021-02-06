@@ -182,7 +182,7 @@ class Connection
             if (!file_exists($path) && !mkdir($path, 0777, true) && !is_dir($path)) {
                 throw new RuntimeException("Directory `$path` was not created");
             }
-            if (!is_writable($path)) {
+            if (!is_dir($path) || !is_writable($path)) {
                 throw new RuntimeException("Directory `$path` not writable");
             }
             $stream = (new StreamHandler($this->logFile))->setFormatter(
