@@ -2,10 +2,14 @@
 
 namespace inblank\rabbit;
 
+use AMQPChannel;
 use AMQPConnection;
+use AMQPConnectionException;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Handler\StreamHandler;
 use Monolog\Logger;
+use RuntimeException;
+use Throwable;
 
 /**
  * Работа с брокером сообщений
@@ -15,14 +19,14 @@ class Connection
 {
     /**
      * Подключение к серверу брокера сообщений
-     * @var AMQPConnection|null
+     * @var \AMQPConnection|null
      */
-    private ?\AMQPConnection $connection = null;
+    private ?AMQPConnection $connection = null;
     /**
      * Канал подключения
      * @var \AMQPChannel|null
      */
-    private ?\AMQPChannel $channel = null;
+    private ?AMQPChannel $channel = null;
     /**
      * Конфигурация подключения, обменников и очередей
      *
@@ -76,7 +80,7 @@ class Connection
      * @return AMQPConnection
      * @throws \AMQPConnectionException
      */
-    protected function getConnection(): \AMQPConnection
+    protected function getConnection(): AMQPConnection
     {
         if ($this->connection === null) {
             try {
@@ -91,12 +95,12 @@ class Connection
                 }
                 if (!$connected) {
                     // не смогли подключиться
-                    throw new \AMQPConnectionException();
+                    throw new AMQPConnectionException();
                 }
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 $host = $this->config['connection']['host'] ?? '127.0.0.1';
                 $message = $e->getMessage();
-                $this->exception("Can't connect to rabbit server: {$host}" . (!empty($message) ? " ({$message})" : ''));
+                $this->exception("Can't connect to rabbit server: $host" . (!empty($message) ? " ($message)" : ''));
             }
         }
         return $this->connection;
@@ -107,10 +111,10 @@ class Connection
      * @return \AMQPChannel
      * @throws \AMQPConnectionException
      */
-    public function getChannel(): \AMQPChannel
+    public function getChannel(): AMQPChannel
     {
         if ($this->channel === null) {
-            $this->channel = new \AMQPChannel($this->getConnection());
+            $this->channel = new AMQPChannel($this->getConnection());
         }
         return $this->channel;
     }
@@ -150,7 +154,7 @@ class Connection
         try {
             $this->getConnection();
             return true;
-        } catch (\AMQPConnectionException $e) {
+        } catch (AMQPConnectionException $e) {
             // не смогли подключиться
             return false;
         }
@@ -164,7 +168,7 @@ class Connection
     public function exception(string $message): void
     {
         $this->getLogger()->error($message);
-        throw new \AMQPConnectionException($message);
+        throw new AMQPConnectionException($message);
     }
 
     /**
@@ -174,9 +178,12 @@ class Connection
     public function getLogger(): Logger
     {
         if (!isset($this->logger)) {
-            $dir = dirname($this->logFile);
-            if (!((is_dir($dir) || mkdir($dir, 0777, true)) && is_writable($dir))) {
-                throw new \RuntimeException("Directory `{$dir}` not writable");
+            $path = dirname($this->logFile);
+            if (!file_exists($path) && !mkdir($path, 0777, true) && !is_dir($path)) {
+                throw new RuntimeException("Directory `$path` was not created");
+            }
+            if (!is_writable($path)) {
+                throw new RuntimeException("Directory `$path` not writable");
             }
             $stream = (new StreamHandler($this->logFile))->setFormatter(
                 new LineFormatter(

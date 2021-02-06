@@ -2,7 +2,10 @@
 
 namespace inblank\rabbit;
 
+use AMQPQueue;
+use AMQPQueueException;
 use Monolog\Logger;
+use Throwable;
 
 /**
  * Очередь
@@ -18,7 +21,7 @@ class Queue
      * Очередь
      * @var \AMQPQueue|null
      */
-    private ?\AMQPQueue $queue = null;
+    private ?AMQPQueue $queue = null;
     /**
      * Имя очереди
      * @var string
@@ -49,7 +52,7 @@ class Queue
      */
     public static function getInstance(Connection $rabbit, string $name): self
     {
-        $key = md5(json_encode($rabbit->config['connection']) . $name);
+        $key = md5(serialize($rabbit->config['connection']) . $name);
         if (!isset(self::$instances[$key])) {
             self::$instances[$key] = new self($rabbit, $name);
         }
@@ -62,15 +65,15 @@ class Queue
      * @throws \AMQPConnectionException
      * @throws \AMQPQueueException
      */
-    public function getQueue(): \AMQPQueue
+    public function getQueue(): AMQPQueue
     {
         if ($this->queue === null) {
             if (empty($this->rabbit->config['queues'][$this->name])) {
-                $this->exception("Queue `{$this->name}` not defined");
+                $this->exception("Queue `$this->name` not defined");
             }
             // создаем и настраиваем очередь
             $config = $this->rabbit->config['queues'][$this->name];
-            $this->queue = new \AMQPQueue($this->rabbit->getChannel());
+            $this->queue = new AMQPQueue($this->rabbit->getChannel());
             $this->queue->setName($this->name);
             if (!empty($config['flags'])) {
                 $this->queue->setFlags($config['flags']);
@@ -78,10 +81,10 @@ class Queue
             // объявляем очередь
             try {
                 $this->queue->declareQueue();
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 // что-то пошло не так
                 $message = $e->getMessage();
-                $this->exception(empty($message) ? "Error declare queue `{$this->name}`" : $message);
+                $this->exception(empty($message) ? "Error declare queue `$this->name`" : $message);
             }
         }
         return $this->queue;
@@ -108,7 +111,7 @@ class Queue
     public function exception(string $message): void
     {
         $this->rabbit->getLogger()->error($message);
-        throw new \AMQPQueueException($message);
+        throw new AMQPQueueException($message);
     }
 
     /**

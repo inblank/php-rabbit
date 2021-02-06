@@ -1,6 +1,7 @@
 <?php
 
 use inblank\rabbit\Connection;
+use inblank\rabbit\Envelope;
 use PHPUnit\Framework\TestCase;
 
 class DefaultTest extends TestCase
@@ -16,6 +17,10 @@ class DefaultTest extends TestCase
 
     /**
      * Полный тест нормальной отправки и получения
+     * @throws \AMQPChannelException
+     * @throws \AMQPConnectionException
+     * @throws \AMQPQueueException
+     * @throws \JsonException
      */
     public function testAll(): void
     {
@@ -26,8 +31,8 @@ class DefaultTest extends TestCase
         //---------------------------------------------------
         // Отправка
         $exchange = $rabbit->getExchange('test');
-        self::assertTrue($exchange->publish(json_encode($this->messages[0])));
-        self::assertTrue($exchange->publish(json_encode($this->messages[1])));
+        self::assertTrue($exchange->publish($this->messages[0]));
+        self::assertTrue($exchange->publish($this->messages[1]));
 
         //---------------------------------------------------
         // Получение
@@ -51,6 +56,6 @@ class DefaultTest extends TestCase
         //---------------------------------------------------
         // НЕ подтверждение
         self::assertTrue($envelope1->nack());
-        self::assertInstanceOf(\inblank\rabbit\Envelope::class, $queue->get());
+        self::assertInstanceOf(Envelope::class, $queue->get());
     }
 }

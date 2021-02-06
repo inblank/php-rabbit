@@ -2,7 +2,10 @@
 
 namespace inblank\rabbit;
 
-use Monolog\Logger;
+use AMQPException;
+use AMQPExchange;
+use AMQPExchangeException;
+use Throwable;
 
 /**
  * Обменник
@@ -18,7 +21,7 @@ class Exchange
      * Обменник
      * @var \AMQPExchange|null
      */
-    private ?\AMQPExchange $exchange = null;
+    private ?AMQPExchange $exchange = null;
     /**
      * Имя обменника
      * @var string
@@ -49,7 +52,7 @@ class Exchange
      */
     public static function getInstance(Connection $rabbit, string $name): self
     {
-        $key = md5(json_encode($rabbit->config['connection']) . $name);
+        $key = md5(serialize($rabbit->config['connection']) . $name);
         if (!isset(self::$instances[$key])) {
             self::$instances[$key] = new self($rabbit, $name);
         }
@@ -59,19 +62,21 @@ class Exchange
     /**
      * Получения обменника
      * @return \AMQPExchange
+     * @throws \AMQPChannelException
      * @throws \AMQPConnectionException
      * @throws \AMQPExchangeException
+     * @throws \AMQPQueueException
      */
-    public function getExchange(): \AMQPExchange
+    public function getExchange(): AMQPExchange
     {
         if ($this->exchange === null) {
             // создаем новый обменник
             if (empty($this->rabbit->config['exchanges'][$this->name])) {
-                $this->exception("Exchange `{$this->name}` not defined");
+                $this->exception("Exchange `$this->name` not defined");
             }
             $config = $this->rabbit->config['exchanges'][$this->name];
             // создаем и настраиваем обменник
-            $this->exchange = new \AMQPExchange($this->rabbit->getChannel());
+            $this->exchange = new AMQPExchange($this->rabbit->getChannel());
             $this->exchange->setName($this->name);
             if (!empty($config['type'])) {
                 $this->exchange->setType($config['type']);
@@ -83,14 +88,14 @@ class Exchange
             try {
                 if (!$this->exchange->declareExchange()) {
                     // не удалось объявить обменник
-                    throw new \AMQPExchangeException();
+                    throw new AMQPExchangeException();
                 }
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 // что-то пошло не так
                 $message = $e->getMessage();
-                $this->exception(empty($message) ? "Error declare exchange `{$this->name}`" : $message);
+                $this->exception(empty($message) ? "Error declare exchange `$this->name`" : $message);
             }
-            // создаем и биндим все нужные очереди
+            // создаем и связываем все нужные очереди
             foreach ($this->rabbit->config['exchanges'][$this->name]['bind'] ?? [] as $queueName => $routingKey) {
                 if (is_int($queueName)) {
                     // задано без ключа роутинга
@@ -106,18 +111,19 @@ class Exchange
 
     /**
      * Публикация сообщения в обменник
-     * @param string $message сообщение для публикации
+     * @param mixed $message сообщение для публикации. Будет преобразовано в json
      * @param string|null $key ключ роутинга
      * @return bool
+     * @throws \JsonException
      */
-    public function publish(string $message, ?string $key = null): bool
+    public function publish($message, ?string $key = null): bool
     {
         $reconnected = false;
         do {
             // получаем обменник
             try {
-                return $this->getExchange()->publish($message, $key);
-            } catch (\AMQPException $e) {
+                return $this->getExchange()->publish(json_encode($message, JSON_THROW_ON_ERROR), $key);
+            } catch (AMQPException $e) {
                 // возможно проблемы с подключением
                 if ($reconnected) {
                     // уже пытались подключиться повторно
@@ -142,7 +148,7 @@ class Exchange
     public function exception(string $message): void
     {
         $this->rabbit->getLogger()->error($message);
-        throw new \AMQPExchangeException($message);
+        throw new AMQPExchangeException($message);
     }
 
     /**
@@ -153,14 +159,5 @@ class Exchange
         foreach (self::$instances as $instance) {
             $instance->exchange = null;
         }
-    }
-
-    /**
-     * Получение логгера
-     * @return Logger
-     */
-    public function getLogger(): Logger
-    {
-        return $this->rabbit->getLogger();
     }
 }

@@ -2,6 +2,9 @@
 
 namespace inblank\rabbit;
 
+use AMQPEnvelope;
+use Throwable;
+
 /**
  * Сообщение
  */
@@ -16,7 +19,7 @@ class Envelope
      * Сообщение
      * @var \AMQPEnvelope|null
      */
-    public ?\AMQPEnvelope $envelope;
+    public ?AMQPEnvelope $envelope;
 
     /**
      * Конструктор
@@ -37,7 +40,6 @@ class Envelope
      * @return mixed возвращает null если сообщение не получено
      * @throws \AMQPConnectionException
      * @throws \AMQPQueueException
-     * @throws \AMQPChannelException
      */
     public function content()
     {
@@ -47,14 +49,17 @@ class Envelope
         $body = $this->envelope->getBody();
         try {
             return json_decode($body, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\Throwable $e) {
-            $this->queue->getLogger()->error("Error envelop: {$body} in queue {$this->queue->getQueue()->getName()}");
+        } catch (Throwable $e) {
+            $this->queue->getLogger()->error("Error envelop: $body in queue {$this->queue->getQueue()->getName()}");
             return null;
         }
     }
 
     /**
      * Подтверждение обработки сообщения
+     * @throws \AMQPChannelException
+     * @throws \AMQPConnectionException
+     * @throws \AMQPQueueException
      */
     public function ack(): bool
     {
