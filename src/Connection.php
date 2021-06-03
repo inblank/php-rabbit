@@ -103,6 +103,10 @@ class Connection
                 $this->exception("Can't connect to rabbit server: $host" . (!empty($message) ? " ($message)" : ''));
             }
         }
+        if (!$this->connection->isConnected()) {
+            // переподключаемся если соединение потеряно
+            $this->reconnect();
+        }
         return $this->connection;
     }
 
