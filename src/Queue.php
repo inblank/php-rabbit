@@ -99,8 +99,11 @@ class Queue
      */
     public function get(): ?Envelope
     {
-        $envelope = new Envelope($this);
-        return $envelope->envelope ? $envelope : null;
+        $message = $this->getQueue()->get();
+        if (!$message) {
+            return null;
+        }
+        return new Envelope($this, $message);
     }
 
     /**

@@ -24,15 +24,15 @@ class Envelope
     /**
      * Конструктор
      * @param Queue $queue очередь из которой сообщение
+     * @param AMQPEnvelope $envelope сообщение полученное из очереди
      * @throws \AMQPChannelException
      * @throws \AMQPConnectionException
      * @throws \AMQPQueueException
      */
-    public function __construct(Queue $queue)
+    public function __construct(Queue $queue, AMQPEnvelope $envelope)
     {
         $this->queue = $queue;
-        $envelope = $queue->getQueue()->get();
-        $this->envelope = $envelope ?: null;
+        $this->envelope = $envelope;
     }
 
     /**
