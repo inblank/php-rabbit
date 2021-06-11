@@ -2,12 +2,13 @@
 
 namespace inblank\rabbit;
 
-use AMQPChannel;
-use AMQPConnection;
-use AMQPConnectionException;
+use Exception;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Handler\StreamHandler;
 use Monolog\Logger;
+use PhpAmqpLib\Channel\AMQPChannel;
+use PhpAmqpLib\Connection\AMQPStreamConnection;
+use PhpAmqpLib\Exception\AMQPConnectionClosedException;
 use RuntimeException;
 use Throwable;
 
@@ -18,108 +19,88 @@ use Throwable;
 class Connection
 {
     /**
-     * Подключение к серверу брокера сообщений
-     * @var \AMQPConnection|null
-     */
-    private ?AMQPConnection $connection = null;
-    /**
-     * Канал подключения
-     * @var \AMQPChannel|null
-     */
-    private ?AMQPChannel $channel = null;
-    /**
      * Конфигурация подключения, обменников и очередей
      *
      *  - **connection** - данные подключения
      *      - **host** - хост подключения к серверу
      *      - **port** - порт подключения
      *      - **vhost** - имя виртуального хоста
-     *      - **login** - логин пользователя
+     *      - **user** - имя пользователя
      *      - **password** - пароль пользователя
      *  - **exchanges** - описание обменников. Ключ имя обменника. Значения параметры обменника.
      *      - **type** - тип обменника
      *      - **flags** - флаги
      *      - **bind** - список привязок очередей к обменнику. Формат: 'queueName' или  'queueName' => 'routingKey'
-     *  - **queues** - описание очередей. Ключ имя очереди. Значения параметры обменника.
-     *      - **flags** - флаги
+     *  - **queues** - имена очередей
+     *  - **logfile** - имя лог-файла. По-умолчанию: /var/log/phprabbit/log.log
+     *  - **retry** - Величины задержек в миллисекундах перед попытками подключения при потере соединения
+     *          Количество задержке задает количество попыток. По умолчанию: [10000, 100000, 250000]
      *
      * @var array
      */
     public array $config = [];
-    /**
-     * Имя log файла
-     * По умолчанию /var/log/phprabbit/log.log
-     * @var string
-     */
-    protected string $logFile;
-    /**
-     * Логгер
-     * @var Logger
-     */
+
+    /** @var AMQPStreamConnection Подключение к серверу брокера сообщений */
+    private AMQPStreamConnection $connection;
+
+    /** @var AMQPChannel Канал подключения */
+    private AMQPChannel $channel;
+
+    /** @var Logger Логгер */
     protected Logger $logger;
-    /**
-     * Величины задержек в миллисекундах перед попытками подключения при потере соединения
-     * Количество задержке задает количество попыток.
-     * @var int[]
-     */
-    public array $retry = [100, 1000, 2000];
 
     /**
      * Конструктор
      * @param array $config конфигурация подключения. Формат в {@see Connection::$config}
-     * @param string|null $logFile имя лог файла. {@see Connection::$logFile}
      */
-    public function __construct(array $config, ?string $logFile = null)
+    public function __construct(array $config)
     {
+        // если задан один сервер подключения, приводим к формату
+        isset($config['connection']['host']) && $config['connection'] = [$config['connection']];
+        empty($config['logfile']) && $config['logfile'] = '/var/log/phprabbit/log.log';
+        $config['retry'] = (array)($config['retry'] ?? [10000, 100000, 250000]);
         $this->config = $config;
-        $this->logFile = $logFile ?? "/var/log/phprabbit/log.log";
     }
 
     /**
      * Получение подключения к серверу
-     * @return AMQPConnection
-     * @throws \AMQPConnectionException
+     * @return AMQPStreamConnection
+     * @throws AMQPConnectionClosedException
      */
-    protected function getConnection(): AMQPConnection
+    public function getConnection(): AMQPStreamConnection
     {
-        if ($this->connection === null) {
-            try {
-                $this->connection = new AMQPConnection($this->config['connection'] ?? null);
-                $this->connection->connect();
+        try {
+            $this->connection ?? $this->connection = AMQPStreamConnection::create_connection($this->config['connection']);
+            if (!$this->isConnected()) {
+                // пытаемся восстановить подключение
                 $try = 0;
-                $attempts = count($this->retry);
-                while (!($connected = $this->connection->isConnected()) && $try < $attempts) {
+                $attempts = count($this->config['retry']);
+                while (!($connected = $this->isConnected()) && $try < $attempts) {
                     // пытаемся переподключиться в случае потери соединения
-                    usleep($this->retry[$try++]);
+                    usleep($this->config['retry'][$try++]);
                     $this->connection->reconnect();
                 }
                 if (!$connected) {
                     // не смогли подключиться
-                    throw new AMQPConnectionException();
+                    throw new AMQPConnectionClosedException();
                 }
-            } catch (Throwable $e) {
-                $host = $this->config['connection']['host'] ?? '127.0.0.1';
-                $message = $e->getMessage();
-                $this->exception("Can't connect to rabbit server: $host" . (!empty($message) ? " ($message)" : ''));
             }
-        }
-        if (!$this->connection->isConnected()) {
-            // переподключаемся если соединение потеряно
-            $this->reconnect();
+        } catch (Throwable $e) {
+            $host = $this->config['connection'][0]['host'];
+            $message = $e->getMessage();
+            $this->exception("Can't connect to rabbit server: $host" . (!empty($message) ? " ($message)" : ''));
         }
         return $this->connection;
     }
 
     /**
      * Получение канала работы с сервером
-     * @return \AMQPChannel
-     * @throws \AMQPConnectionException
+     * @return AMQPChannel
+     * @throws AMQPConnectionClosedException
      */
     public function getChannel(): AMQPChannel
     {
-        if ($this->channel === null) {
-            $this->channel = new AMQPChannel($this->getConnection());
-        }
+        !isset($this->channel) && $this->channel = $this->getConnection()->channel();
         return $this->channel;
     }
 
@@ -146,33 +127,39 @@ class Connection
     /**
      * Повторное подключение
      * @return bool если удалось переподключиться true, иначе false
+     * @throws Exception
      */
     public function reconnect(): bool
     {
-        if ($this->connection->isConnected()) {
-            $this->connection->disconnect();
-        }
-        Exchange::reset();
-        Queue::reset();
-        $this->connection = $this->channel = null;
+        $this->isConnected() && $this->connection->close();
+        unset($this->connection, $this->channel);
         try {
             $this->getConnection();
             return true;
-        } catch (AMQPConnectionException $e) {
+        } catch (AMQPConnectionClosedException $e) {
             // не смогли подключиться
             return false;
         }
     }
 
     /**
+     * Проверка, что соединение с сервером установлено
+     * @return bool
+     */
+    public function isConnected(): bool
+    {
+        return isset($this->connection) && $this->connection->isConnected();
+    }
+
+    /**
      * Выброс исключения с записью ошибки
      * @param string $message сообщение об ошибке
-     * @throws \AMQPConnectionException
+     * @throws AMQPConnectionClosedException
      */
     public function exception(string $message): void
     {
         $this->getLogger()->error($message);
-        throw new AMQPConnectionException($message);
+        throw new AMQPConnectionClosedException($message);
     }
 
     /**
@@ -182,14 +169,14 @@ class Connection
     public function getLogger(): Logger
     {
         if (!isset($this->logger)) {
-            $path = dirname($this->logFile);
+            $path = dirname($this->config['logFile']);
             if (!file_exists($path) && !mkdir($path, 0777, true) && !is_dir($path)) {
                 throw new RuntimeException("Directory `$path` was not created");
             }
             if (!is_dir($path) || !is_writable($path)) {
                 throw new RuntimeException("Directory `$path` not writable");
             }
-            $stream = (new StreamHandler($this->logFile))->setFormatter(
+            $stream = (new StreamHandler($this->config['logFile']))->setFormatter(
                 new LineFormatter(
                     "[%datetime%]\t%channel%.%level_name%\t%message%\t%context%\t%extra%\n",
                     'Y-m-d H:i:s'
@@ -202,13 +189,10 @@ class Connection
 
     /**
      * Деструктор
+     * @throws Exception
      */
     public function __destruct()
     {
-        if (isset($this->connection) && $this->connection->isConnected()) {
-            Exchange::reset();
-            Queue::reset();
-            $this->connection->disconnect();
-        }
+        $this->isConnected() && $this->connection->close();
     }
 }

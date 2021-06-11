@@ -2,7 +2,7 @@
 
 namespace inblank\rabbit;
 
-use AMQPEnvelope;
+use PhpAmqpLib\Message\AMQPMessage;
 use Throwable;
 
 /**
@@ -10,78 +10,64 @@ use Throwable;
  */
 class Envelope
 {
-    /**
-     * Очередь
-     * @var Queue
-     */
+    /** @var Queue Очередь из которой сообщение */
     private Queue $queue;
-    /**
-     * Сообщение
-     * @var \AMQPEnvelope|null
-     */
-    public ?AMQPEnvelope $envelope;
+
+    /** @var AMQPMessage Сообщение */
+    private AMQPMessage $envelope;
 
     /**
      * Конструктор
      * @param Queue $queue очередь из которой сообщение
-     * @param AMQPEnvelope $envelope сообщение полученное из очереди
-     * @throws \AMQPChannelException
-     * @throws \AMQPConnectionException
-     * @throws \AMQPQueueException
+     * @param AMQPMessage $envelope сообщение полученное из очереди
      */
-    public function __construct(Queue $queue, AMQPEnvelope $envelope)
+    public function __construct(Queue $queue, AMQPMessage $envelope)
     {
         $this->queue = $queue;
         $this->envelope = $envelope;
     }
 
     /**
+     * Получение исходного сообщения
+     * @return string
+     */
+    public function raw(): string
+    {
+        return $this->envelope->getBody();
+    }
+
+    /**
      * Получение преобразованного json сообщения
-     * @return mixed возвращает null если сообщение не получено
-     * @throws \AMQPConnectionException
-     * @throws \AMQPQueueException
+     * @return mixed
      */
     public function content()
     {
-        if (!$this->envelope) {
-            return null;
-        }
-        $body = $this->envelope->getBody();
         try {
-            return json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+            return json_decode($this->raw(), true, 512, JSON_THROW_ON_ERROR);
         } catch (Throwable $e) {
-            $this->queue->getLogger()->error("Error envelop: $body in queue {$this->queue->getQueue()->getName()}");
+            $this->queue->getLogger()->error("Error envelop: {$this->raw()} in queue {$this->queue->getName()}");
             return null;
         }
     }
 
     /**
      * Подтверждение обработки сообщения
-     * @throws \AMQPChannelException
-     * @throws \AMQPConnectionException
-     * @throws \AMQPQueueException
+     * @return bool
      */
     public function ack(): bool
     {
-        if (!$this->envelope) {
-            return false;
-        }
-        return $this->queue->getQueue()->ack($this->envelope->getDeliveryTag());
+        $this->envelope->ack();
+        return true;
     }
 
     /**
      * НЕ подтверждение обработки сообщения
-     * @param int $flags флаги не подтверждения обработки
+     * @param bool $requeue признак возврата сообщения обратно в очередь
      * @return bool
-     * @throws \AMQPChannelException
-     * @throws \AMQPConnectionException
-     * @throws \AMQPQueueException
      */
-    public function nack(int $flags = AMQP_REQUEUE): bool
+    public function nack(bool $requeue = true): bool
     {
-        if (!$this->envelope) {
-            return false;
-        }
-        return $this->queue->getQueue()->nack($this->envelope->getDeliveryTag(), $flags);
+        $this->envelope->nack($requeue);
+        return true;
     }
 }

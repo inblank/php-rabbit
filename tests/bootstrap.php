@@ -3,25 +3,21 @@
 /**
  * Конфигурация подключения, обменников и очередей
  */
+
+use inblank\rabbit\Exchange;
+
 $_ENV['config'] = [
     'connection' => [
         'host' => 'rabbit',
         'port' => 5672,
-        'login' => 'test',
+        'user' => 'test',
         'password' => 'test'
     ],
     'exchanges' => [
         'test' => [
-            'type' => AMQP_EX_TYPE_DIRECT,
-            'flags' => AMQP_DURABLE,
-            'bind' => [
-                'test'
-            ]
+            'type' => Exchange::TYPE_DIRECT,
+            'bind' => ['test']
         ],
     ],
-    'queues' => [
-        'test' => [
-            'flags' => AMQP_DURABLE,
-        ]
-    ]
+    'queues' => ['test']
 ];

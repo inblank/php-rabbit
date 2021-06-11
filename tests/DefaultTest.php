@@ -4,12 +4,12 @@ use inblank\rabbit\Connection;
 use inblank\rabbit\Envelope;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * Класс тестов по умолчанию
+ */
 class DefaultTest extends TestCase
 {
-    /**
-     * Данные для тестовой отправки
-     * @var string[][]
-     */
+    /** @var string[][] Данные для тестовой отправки */
     protected array $messages = [
         ["data" => 'Test 1'],
         ["data" => 'Test 2'],
@@ -17,16 +17,14 @@ class DefaultTest extends TestCase
 
     /**
      * Полный тест нормальной отправки и получения
-     * @throws \AMQPChannelException
-     * @throws \AMQPConnectionException
-     * @throws \AMQPQueueException
-     * @throws \JsonException
+     * @throws JsonException
      */
     public function testAll(): void
     {
         $rabbit = new Connection($_ENV['config']);
+
         // очищаем очередь перед тестами
-        $rabbit->getQueue('test')->getQueue()->purge();
+        $rabbit->getQueue('test')->purge();
 
         //---------------------------------------------------
         // Отправка
@@ -56,6 +54,22 @@ class DefaultTest extends TestCase
         //---------------------------------------------------
         // НЕ подтверждение
         self::assertTrue($envelope1->nack());
-        self::assertInstanceOf(Envelope::class, $queue->get());
+        self::assertInstanceOf(Envelope::class, ($envelope = $queue->get()));
+
+        //---------------------------------------------------
+        // Прослушка
+        $envelope->nack(); // возвращаем в очередь
+        $processed = 0;
+        $channel = $queue->consume(function (Envelope $envelope) use (&$processed) {
+            $processed++;
+            $envelope->ack();
+        });
+        $step = 0;
+        while ($channel->is_consuming() && ++$step < 3) {
+            $channel->wait(null, true);
+            usleep(30000);
+        }
+        self::assertNull($queue->get());
+        self::assertEquals(1, $processed);
     }
 }

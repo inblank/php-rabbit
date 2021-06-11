@@ -18,13 +18,12 @@ $rabbit = new Connection([
     ],
     'exchanges' => [
         'exchange' => [
-            'type' => AMQP_EX_TYPE_DIRECT,
-            'flags' => AMQP_DURABLE,
+            'type' => \inblank\rabbit\Exchange::TYPE_DIRECT,
             'bind' => ['queue']
         ],
     ],
     'queues' => [
-        'queue' => ['flags' => AMQP_DURABLE,]
+        'queue'
     ]
 ]);
 
@@ -44,7 +43,20 @@ if ($message) {
         $message->nack();
     }
 }
-```
+ 
+// 4. Прослушка (не блокирующая)
+$channel = $rabbit->getQueue('queue')->consume(
+    function (\inblank\rabbit\Envelope $envelope) {
+        $envelope->ack();
+     }
+);
+while ($channel->is_consuming()) {
+    $channel->wait(null, true);
+   // ... делаем что-то
+   usleep(30000);
+}
+
+````
 
 ## Тесты
 

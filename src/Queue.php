@@ -2,9 +2,10 @@
 
 namespace inblank\rabbit;
 
-use AMQPQueue;
-use AMQPQueueException;
 use Monolog\Logger;
+use PhpAmqpLib\Channel\AMQPChannel;
+use PhpAmqpLib\Message\AMQPMessage;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -12,26 +13,14 @@ use Throwable;
  */
 class Queue
 {
-    /**
-     * Список очередей
-     * @var Queue[]
-     */
+    /** @var Queue[] Список очередей */
     private static array $instances = [];
-    /**
-     * Очередь
-     * @var \AMQPQueue|null
-     */
-    private ?AMQPQueue $queue = null;
-    /**
-     * Имя очереди
-     * @var string
-     */
-    private string $name;
-    /**
-     * Основной класс подключения к серверу
-     * @var Connection
-     */
+
+    /** @var Connection Основной класс подключения к серверу */
     private Connection $rabbit;
+
+    /** @var string Имя очереди */
+    private string $name;
 
     /**
      * Конструктор
@@ -42,10 +31,20 @@ class Queue
     {
         $this->name = $name;
         $this->rabbit = $rabbit;
+        $this->declare();
     }
 
     /**
-     * Получение инстанса очереди
+     * Получение канала
+     * @return AMQPChannel
+     */
+    protected function getChannel(): AMQPChannel
+    {
+        return $this->rabbit->getChannel();
+    }
+
+    /**
+     * Получение экземпляра очереди
      * @param Connection $rabbit конфигурация и подключение к серверу
      * @param string $name имя очереди в конфигурации
      * @return static
@@ -53,78 +52,77 @@ class Queue
     public static function getInstance(Connection $rabbit, string $name): self
     {
         $key = md5(serialize($rabbit->config['connection']) . $name);
-        if (!isset(self::$instances[$key])) {
-            self::$instances[$key] = new self($rabbit, $name);
-        }
+        !isset(self::$instances[$key]) && (self::$instances[$key] = new self($rabbit, $name));
         return self::$instances[$key];
     }
 
     /**
      * Получение очереди
-     * @return \AMQPQueue
-     * @throws \AMQPConnectionException
-     * @throws \AMQPQueueException
+     * @throws RuntimeException
      */
-    public function getQueue(): AMQPQueue
+    protected function declare(): void
     {
-        if ($this->queue === null) {
-            if (empty($this->rabbit->config['queues'][$this->name])) {
-                $this->exception("Queue `$this->name` not defined");
-            }
-            // создаем и настраиваем очередь
-            $config = $this->rabbit->config['queues'][$this->name];
-            $this->queue = new AMQPQueue($this->rabbit->getChannel());
-            $this->queue->setName($this->name);
-            if (!empty($config['flags'])) {
-                $this->queue->setFlags($config['flags']);
-            }
-            // объявляем очередь
-            try {
-                $this->queue->declareQueue();
-            } catch (Throwable $e) {
-                // что-то пошло не так
-                $message = $e->getMessage();
-                $this->exception(empty($message) ? "Error declare queue `$this->name`" : $message);
-            }
+        if (!in_array($this->name, $this->rabbit->config['queues'], true)) {
+            $this->exception("Queue `$this->name` not defined");
         }
-        return $this->queue;
+        try {
+            // создаем и настраиваем очередь
+            $this->getChannel()->queue_declare(
+                $this->name, false, true, false, false
+            );
+        } catch (Throwable $e) {
+            // что-то пошло не так
+            $message = $e->getMessage();
+            $this->exception(empty($message) ? "Error declare queue `$this->name`" : $message);
+        }
+    }
+
+    /**
+     * Очистка очереди
+     */
+    public function purge(): self
+    {
+        $this->getChannel()->queue_purge($this->name);
+        return $this;
     }
 
     /**
      * Получение сообщения из очереди
      * @return Envelope|null возвращает null если нет сообщений в очереди
-     * @throws \AMQPChannelException
-     * @throws \AMQPConnectionException
-     * @throws \AMQPQueueException
      */
     public function get(): ?Envelope
     {
-        $message = $this->getQueue()->get();
-        if (!$message) {
-            return null;
-        }
-        return new Envelope($this, $message);
+        $message = $this->getChannel()->basic_get($this->name);
+        return !$message ? null : new Envelope($this, $message);
+    }
+
+    /**
+     * Прослушивание канала
+     * @param callable $callback функция для обработки сообщений. Сигнатура: function(inblank\rabbit\Envelope $envelope)
+     * @param string $consumerTag имя обработчика
+     * @return AMQPChannel канал на котором прослушивание
+     */
+    public function consume(callable $callback, string $consumerTag = ''): AMQPChannel
+    {
+        $channel = $this->getChannel();
+        $channel->basic_consume(
+            $this->name, $consumerTag, false, false, false, false,
+            function (AMQPMessage $message) use ($callback) {
+                $callback(new Envelope($this, $message));
+            }
+        );
+        return $channel;
     }
 
     /**
      * Вызов исключения с записью ошибки
      * @param string $message сообщение об ошибке
-     * @throws \AMQPQueueException
+     * @throws RuntimeException
      */
     public function exception(string $message): void
     {
-        $this->rabbit->getLogger()->error($message);
-        throw new AMQPQueueException($message);
-    }
-
-    /**
-     * Сброс всех инициализированных очередей
-     */
-    public static function reset(): void
-    {
-        foreach (self::$instances as $instance) {
-            $instance->queue = null;
-        }
+        $this->getLogger()->error($message);
+        throw new RuntimeException($message);
     }
 
     /**
@@ -134,5 +132,14 @@ class Queue
     public function getLogger(): Logger
     {
         return $this->rabbit->getLogger();
+    }
+
+    /**
+     * Получение имени очереди
+     * @return string
+     */
+    public function getName(): string
+    {
+        return $this->name;
     }
 }
